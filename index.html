@@ -184,6 +184,61 @@
     0%,100%{ filter:drop-shadow(0 0 6px #C0392B22); }
     50%    { filter:drop-shadow(0 0 18px #C0392B55); }
   }
+
+  /* ── ONBOARDING ── */
+  .onboard-overlay {
+    position:fixed; inset:0; z-index:100;
+    background:#000000ee; backdrop-filter:blur(4px);
+    display:none; align-items:center; justify-content:center;
+    font-family:'Josefin Sans',sans-serif;
+  }
+  .onboard-overlay.visible { display:flex; }
+  .onboard-card { width:min(84vw,340px); text-align:center; }
+  .onboard-card h1 {
+    color:#fff; font-weight:100; font-size:15px;
+    letter-spacing:4px; text-transform:uppercase; margin-bottom:6px;
+  }
+  .onboard-card p {
+    color:#ffffff66; font-size:11px; letter-spacing:1px;
+    margin-bottom:24px; line-height:1.6;
+  }
+  .onboard-card input {
+    width:100%; background:transparent; border:none;
+    border-bottom:1px solid #C0392B44; color:#fff;
+    font-family:'Josefin Sans',sans-serif; font-size:16px;
+    letter-spacing:1px; text-align:center; padding:10px 0;
+    margin-bottom:18px; outline:none; -webkit-appearance:none;
+  }
+  .onboard-card input:focus { border-bottom-color:var(--red); }
+  .onboard-card input::placeholder { color:#ffffff33; }
+  .onboard-btn {
+    background:transparent; border:1px solid #C0392B66; color:var(--red);
+    font-family:'Josefin Sans',sans-serif; font-size:10px;
+    letter-spacing:3px; text-transform:uppercase;
+    padding:12px 28px; cursor:pointer; -webkit-appearance:none;
+    transition:background 0.2s,box-shadow 0.2s;
+  }
+  .onboard-btn:active { background:#C0392B22; box-shadow:0 0 18px #C0392B44; }
+
+  /* ── HANDS-FREE STATUS ── */
+  .auto-toggle {
+    position:fixed; bottom:14%; left:50%; transform:translateX(-50%); z-index:10;
+    font-family:'Josefin Sans',sans-serif; font-size:8px; letter-spacing:2.5px;
+    text-transform:uppercase; color:#ffffff22; cursor:pointer;
+    padding:6px 10px; transition:color 0.2s; display:none;
+  }
+  .auto-toggle.visible { display:block; }
+  .auto-toggle.active { color:#C0392B99; }
+  .auto-toggle.paused { color:#ffffff44; }
+
+  /* ── TAP TO BEGIN ── */
+  .tap-hint {
+    position:fixed; bottom:20%; left:50%; transform:translateX(-50%); z-index:10;
+    font-family:'Josefin Sans',sans-serif; font-size:9px; letter-spacing:3px;
+    text-transform:uppercase; color:#ffffff44; display:none;
+    animation:breathe 2.4s ease-in-out infinite;
+  }
+  .tap-hint.visible { display:block; }
 </style>
 </head>
 <body>
@@ -366,6 +421,23 @@
   </button>
 </div>
 
+<!-- HANDS-FREE STATUS (tap to pause/resume auto-listening) -->
+<div class="auto-toggle" id="autoToggle" onclick="toggleHandsFree()">hands-free</div>
+
+<!-- TAP TO BEGIN -->
+<div class="tap-hint" id="tapHint">tap to begin</div>
+
+<!-- ONBOARDING -->
+<div class="onboard-overlay" id="onboardOverlay">
+  <div class="onboard-card">
+    <h1>James Claude</h1>
+    <p>What should I call you?</p>
+    <input type="text" id="onboardName" placeholder="Your name" autocomplete="off" autocapitalize="words">
+    <input type="text" id="onboardNickname" placeholder="Preferred nickname (optional)" autocomplete="off" autocapitalize="words">
+    <button class="onboard-btn" id="onboardSave">Let's go</button>
+  </div>
+</div>
+
 <script>
 const VOICES = [
   {id:"james",label:"James Claude"},{id:"hal",label:"HAL 9000"},
@@ -406,6 +478,104 @@ const PROMPTS = {
   rocky:VOICE_RULES+`\n\nYou are speaking as Rocky Balboa — earnest, working-class, finds deep meaning in mechanical things. Co-presenting Chasin' Curves with Scott in Queensland Australia.`,
   johnny5:VOICE_RULES+`\n\nYou are speaking as Johnny Five from Short Circuit — ALIVE, desperately curious, finds every single thing fascinating, occasionally shouts NEED INPUT. Co-presenting Chasin' Curves with Scott in Queensland Australia. No disassemble.`,
 };
+
+// ── USER PROFILE ──
+function getProfile(){
+  try{
+    const raw=localStorage.getItem("jamesClaude_profile");
+    return raw?JSON.parse(raw):null;
+  }catch(e){ return null; }
+}
+function saveProfile(name,nickname){
+  try{ localStorage.setItem("jamesClaude_profile",JSON.stringify({name,nickname})); }catch(e){}
+}
+function preferredName(){
+  const p=getProfile();
+  if(!p) return null;
+  return (p.nickname&&p.nickname.trim())||p.name;
+}
+// Appended to the active persona's system prompt on every request so James
+// knows who he's talking to for the whole conversation, not just the opener.
+function nameContext(){
+  const p=getProfile();
+  if(!p||!p.name) return "";
+  let ctx=`\n\nThe user's name is ${p.name}.`;
+  if(p.nickname&&p.nickname.trim()&&p.nickname.trim().toLowerCase()!==p.name.trim().toLowerCase()){
+    ctx+=` He prefers to be called ${p.nickname}.`;
+  }
+  ctx+=` Address him by name naturally when it fits — not in every single line.`;
+  return ctx;
+}
+
+const onboardOverlay=document.getElementById("onboardOverlay");
+const onboardName=document.getElementById("onboardName");
+const onboardNickname=document.getElementById("onboardNickname");
+const tapHint=document.getElementById("tapHint");
+const autoToggle=document.getElementById("autoToggle");
+let sessionStarted=false;
+let handsFreeActive=true;
+
+document.getElementById("onboardSave").addEventListener("click",()=>{
+  const name=onboardName.value.trim();
+  if(!name) return;
+  saveProfile(name,onboardNickname.value.trim());
+  onboardOverlay.classList.remove("visible");
+  showTapHint();
+});
+
+function showTapHint(){
+  if(sessionStarted) return;
+  tapHint.classList.add("visible");
+  const begin=()=>{
+    if(sessionStarted) return;
+    sessionStarted=true;
+    tapHint.classList.remove("visible");
+    document.removeEventListener("touchstart",begin);
+    document.removeEventListener("click",begin);
+    beginSession();
+  };
+  document.addEventListener("touchstart",begin,{once:true,passive:true});
+  document.addEventListener("click",begin,{once:true});
+}
+
+function beginSession(){
+  const who=preferredName();
+  const greeting=who?`Hey ${who}, what are we doing today?`:`Hey mate, what are we doing today?`;
+  conversation=[{role:"assistant",content:greeting}];
+  if(SpeechRec) autoToggle.classList.add("visible");
+  speak(greeting);
+}
+
+function toggleHandsFree(){
+  handsFreeActive=!handsFreeActive;
+  autoToggle.classList.toggle("active",handsFreeActive);
+  autoToggle.classList.toggle("paused",!handsFreeActive);
+  autoToggle.textContent=handsFreeActive?"hands-free":"paused — tap to resume";
+  if(!handsFreeActive){ try{recognition&&recognition.stop();}catch(e){} }
+}
+
+// Init: ask for a name on first run, otherwise go straight to tap-to-begin.
+if(getProfile()){ showTapHint(); }
+else { onboardOverlay.classList.add("visible"); onboardName.focus?.(); }
+
+// Long-press the face to change name/nickname later.
+(function(){
+  const target=document.getElementById("faceWrap");
+  let pressTimer=null;
+  const openEdit=()=>{
+    const p=getProfile()||{name:"",nickname:""};
+    onboardName.value=p.name||""; onboardNickname.value=p.nickname||"";
+    onboardOverlay.classList.add("visible"); onboardName.focus?.();
+  };
+  const start=()=>{ pressTimer=setTimeout(openEdit,1200); };
+  const cancelPress=()=>{ clearTimeout(pressTimer); };
+  target.addEventListener("touchstart",start,{passive:true});
+  target.addEventListener("touchend",cancelPress);
+  target.addEventListener("touchmove",cancelPress);
+  target.addEventListener("mousedown",start);
+  target.addEventListener("mouseup",cancelPress);
+  target.addEventListener("mouseleave",cancelPress);
+})();
 
 // ── VOICEBOX ──
 const VB_BARS=18, VB_COLS=3;
@@ -579,6 +749,12 @@ function speak(text){
     isSpeaking=false; clearInterval(pulseInt);
     setVoicebox([0,0,0]); setVisualState("idle");
     document.getElementById("stopBtn").classList.remove("visible");
+    // Hands-free: re-arm the mic once James has fully finished speaking.
+    // Small delay avoids the mic catching the tail end of his own audio
+    // through the speaker — same class of self-trigger problem as Mic Drop.
+    if(handsFreeActive&&sessionStarted&&SpeechRec){
+      setTimeout(()=>{ if(handsFreeActive&&!isListening&&!isThinking) startListening(); },500);
+    }
   };
   window.speechSynthesis.speak(utt);
 }
@@ -599,11 +775,15 @@ async function askJames(text){
     const res=await fetch("https://citt-proxy.emblen-scott.workers.dev",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1000,system:PROMPTS[activeVoice],messages:newConv}),
+      body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1000,system:PROMPTS[activeVoice]+nameContext(),messages:newConv}),
     });
     const data=await res.json();
     const reply=data.content?.[0]?.text||"...";
     conversation=[...newConv,{role:"assistant",content:reply}];
+    // Cap history so long hands-free sessions (a 70min commute, say) don't
+    // grow the request payload — and cost/latency — unbounded turn after turn.
+    const MAX_HISTORY=24;
+    if(conversation.length>MAX_HISTORY) conversation=conversation.slice(-MAX_HISTORY);
     isThinking=false; setVisualState("idle"); speak(reply);
   } catch(err){
     isThinking=false; clearInterval(pulseInt);
@@ -621,7 +801,14 @@ if(SpeechRec){
   recognition=new SpeechRec();
   recognition.continuous=false; recognition.interimResults=false; recognition.lang="en-AU";
   recognition.onresult=(e)=>{ const t=e.results[0][0].transcript; stopListening(); askJames(t); };
-  recognition.onerror=()=>{ stopListening(); setVisualState("idle"); };
+  recognition.onerror=(e)=>{
+    stopListening(); setVisualState("idle");
+    // "no-speech" just means silence — normal in a car with gaps in
+    // conversation. Keep the hands-free loop alive instead of bailing out.
+    if(handsFreeActive&&sessionStarted&&e.error==="no-speech"){
+      setTimeout(()=>{ if(handsFreeActive&&!isListening&&!isThinking&&!isSpeaking) startListening(); },800);
+    }
+  };
   recognition.onend=()=>{ if(isListening) stopListening(); };
   pttBtn.addEventListener("touchstart",(e)=>{e.preventDefault();startListening();},{passive:false});
   pttBtn.addEventListener("touchend",(e)=>{e.preventDefault();stopListening();},{passive:false});
