@@ -514,6 +514,26 @@ const tapHint=document.getElementById("tapHint");
 const autoToggle=document.getElementById("autoToggle");
 let sessionStarted=false;
 let handsFreeActive=true;
+let pausedByBackground=false;
+
+// Phone calls, switching to another app, or the screen locking all background
+// this tab. A call takes the mic away from us entirely — recognition will
+// error out and, without this, hands-free mode just dies silently and never
+// comes back. Instead: pause cleanly on the way out, resume on the way back.
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){
+    if(isSpeaking) stopSpeaking();
+    if(isListening){ try{ recognition&&recognition.stop(); }catch(e){} }
+    if(handsFreeActive&&sessionStarted) pausedByBackground=true;
+  } else if(pausedByBackground){
+    pausedByBackground=false;
+    // Give the OS a moment to actually release the mic back to the browser
+    // before we try to grab it again.
+    setTimeout(()=>{
+      if(handsFreeActive&&sessionStarted&&!isListening&&!isThinking&&!isSpeaking&&SpeechRec) startListening();
+    },1000);
+  }
+});
 
 document.getElementById("onboardSave").addEventListener("click",()=>{
   const name=onboardName.value.trim();
@@ -772,7 +792,7 @@ async function askJames(text){
   isThinking=true; setVisualState("thinking");
   const newConv=[...conversation,{role:"user",content:text}];
   try{
-    const res=await fetch("https://citt-proxy.emblen-scott.workers.dev",{
+    const res=await fetch("https://maverick-james.emblen-scott.workers.dev",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1000,system:PROMPTS[activeVoice]+nameContext(),messages:newConv}),
