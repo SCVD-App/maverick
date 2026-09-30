@@ -2,6 +2,9 @@
 wrangler.toml
 .wrangler/
 
+# Worker code lives in the PRIVATE scvd-context repo (citt-maverick/) — never publish it here
+worker.js
+
 # Node
 node_modules/
 
