@@ -1,0 +1,10 @@
+# Wrangler ? config and local state stay on this PC, never on GitHub
+wrangler.toml
+.wrangler/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
